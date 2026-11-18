@@ -170,12 +170,10 @@ fun StudioScreen(raw: File, onBack: () -> Unit, onDeleted: () -> Unit, onPlay: (
                         }
                     }
                 }
-                Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-                    AnimatedVisibility(
-                        visible = busy && preview != null,
-                        enter = fadeIn(tween(120)), exit = fadeOut(tween(200))
-                    ) { Spinner(Bc.Accent, 22.dp) }
-                }
+                SpinnerOverlay(
+                    visible = busy && preview != null,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
+                )
 
                 // hold to compare
                 Row(
@@ -321,5 +319,16 @@ private fun RenderProgress(progress: Float, etaSec: Int, onCancel: () -> Unit) {
         }
         Spacer(Modifier.height(14.dp))
         BcButton("Cancel render", onCancel, Modifier.fillMaxWidth(), kind = BtnKind.Secondary, icon = Ph.X)
+    }
+}
+
+@Composable
+private fun SpinnerOverlay(visible: Boolean, modifier: Modifier = Modifier) {
+    Box(modifier) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(120)),
+            exit = fadeOut(tween(200))
+        ) { Spinner(Bc.Accent, 22.dp) }
     }
 }

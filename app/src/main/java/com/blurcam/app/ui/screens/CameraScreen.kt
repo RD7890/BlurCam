@@ -260,37 +260,11 @@ private fun LiveCamera(onClose: () -> Unit, onRecorded: (File) -> Unit) {
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-                Box(Modifier.align(Alignment.BottomCenter).padding(14.dp)) {
-                    AnimatedVisibility(
-                        visible = !isRecording && error == null,
-                        enter = fadeIn(tween(300)) + slideInVertically(tween(400)) { it / 2 },
-                        exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { it / 2 },
-                    ) {
-                        Row(
-                            Modifier.clip(RoundedCornerShape(100.dp)).background(Bc.Ink)
-                                .padding(horizontal = 14.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            PhIcon(Ph.UserFocus, Bc.Accent, size = 18.dp)
-                            Spacer(Modifier.width(8.dp))
-                            BcText("Keep your subject in frame", BcType.Small)
-                        }
-                    }
-                    AnimatedVisibility(
-                        visible = error != null,
-                        enter = fadeIn(tween(200)) + slideInVertically(tween(300)) { it / 2 },
-                        exit = fadeOut(tween(150)),
-                    ) {
-                        Row(
-                            Modifier.clip(RoundedCornerShape(14.dp)).background(Bc.Ink).padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            PhIcon(Ph.Warning, Bc.Amber, size = 20.dp)
-                            Spacer(Modifier.width(10.dp))
-                            BcText(error ?: "", BcType.Small)
-                        }
-                    }
-                }
+                ViewfinderOverlay(
+                    isRecording = isRecording,
+                    error = error,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp)
+                )
             }
         }
 
@@ -312,6 +286,41 @@ private fun LiveCamera(onClose: () -> Unit, onRecorded: (File) -> Unit) {
                 Modifier.align(Alignment.CenterEnd).graphicsLayer { rotationY = flip },
                 tint = if (isRecording) Bc.TextMute else Bc.Text, size = 52.dp
             )
+        }
+    }
+}
+
+@Composable
+private fun ViewfinderOverlay(isRecording: Boolean, error: String?, modifier: Modifier = Modifier) {
+    Box(modifier) {
+        AnimatedVisibility(
+            visible = !isRecording && error == null,
+            enter = fadeIn(tween(300)) + slideInVertically(tween(400)) { it / 2 },
+            exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { it / 2 },
+        ) {
+            Row(
+                Modifier.clip(RoundedCornerShape(100.dp)).background(Bc.Ink)
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PhIcon(Ph.UserFocus, Bc.Accent, size = 18.dp)
+                Spacer(Modifier.width(8.dp))
+                BcText("Keep your subject in frame", BcType.Small)
+            }
+        }
+        AnimatedVisibility(
+            visible = error != null,
+            enter = fadeIn(tween(200)) + slideInVertically(tween(300)) { it / 2 },
+            exit = fadeOut(tween(150)),
+        ) {
+            Row(
+                Modifier.clip(RoundedCornerShape(14.dp)).background(Bc.Ink).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PhIcon(Ph.Warning, Bc.Amber, size = 20.dp)
+                Spacer(Modifier.width(10.dp))
+                BcText(error ?: "", BcType.Small)
+            }
         }
     }
 }
