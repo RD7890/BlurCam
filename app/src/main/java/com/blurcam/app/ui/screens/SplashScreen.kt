@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SplashScreen(onDone: () -> Unit) {
-    val done by rememberUpdatedState(onDone)
+    val doneState = rememberUpdatedState(onDone)
     val rot = remember { Animatable(-140f) }
     val scale = remember { Animatable(0.35f) }
     val textAlpha = remember { Animatable(0f) }
@@ -41,7 +41,7 @@ fun SplashScreen(onDone: () -> Unit) {
         launch { textAlpha.animateTo(1f, tween(480)) }
         launch { textShift.animateTo(0f, tween(620, easing = Motion.ExpoOut)) }
         delay(900)
-        done()
+        doneState.value()
     }
 
     Column(

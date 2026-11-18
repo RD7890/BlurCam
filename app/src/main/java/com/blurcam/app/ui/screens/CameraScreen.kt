@@ -20,7 +20,7 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
-import androidx.camera.video.AudioConfig
+import androidx.camera.core.AudioConfig
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -260,35 +260,35 @@ private fun LiveCamera(onClose: () -> Unit, onRecorded: (File) -> Unit) {
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-                AnimatedVisibility(
-                    visible = !isRecording && error == null,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp),
-                    enter = fadeIn(tween(300)) + slideInVertically(tween(400)) { it / 2 },
-                    exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { it / 2 },
-                ) {
-                    Row(
-                        Modifier.clip(RoundedCornerShape(100.dp)).background(Bc.Ink)
-                            .padding(horizontal = 14.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                Box(Modifier.align(Alignment.BottomCenter).padding(14.dp)) {
+                    AnimatedVisibility(
+                        visible = !isRecording && error == null,
+                        enter = fadeIn(tween(300)) + slideInVertically(tween(400)) { it / 2 },
+                        exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { it / 2 },
                     ) {
-                        PhIcon(Ph.UserFocus, Bc.Accent, size = 18.dp)
-                        Spacer(Modifier.width(8.dp))
-                        BcText("Keep your subject in frame", BcType.Small)
+                        Row(
+                            Modifier.clip(RoundedCornerShape(100.dp)).background(Bc.Ink)
+                                .padding(horizontal = 14.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            PhIcon(Ph.UserFocus, Bc.Accent, size = 18.dp)
+                            Spacer(Modifier.width(8.dp))
+                            BcText("Keep your subject in frame", BcType.Small)
+                        }
                     }
-                }
-                AnimatedVisibility(
-                    visible = error != null,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp),
-                    enter = fadeIn(tween(200)) + slideInVertically(tween(300)) { it / 2 },
-                    exit = fadeOut(tween(150)),
-                ) {
-                    Row(
-                        Modifier.clip(RoundedCornerShape(14.dp)).background(Bc.Ink).padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    AnimatedVisibility(
+                        visible = error != null,
+                        enter = fadeIn(tween(200)) + slideInVertically(tween(300)) { it / 2 },
+                        exit = fadeOut(tween(150)),
                     ) {
-                        PhIcon(Ph.Warning, Bc.Amber, size = 20.dp)
-                        Spacer(Modifier.width(10.dp))
-                        BcText(error ?: "", BcType.Small)
+                        Row(
+                            Modifier.clip(RoundedCornerShape(14.dp)).background(Bc.Ink).padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            PhIcon(Ph.Warning, Bc.Amber, size = 20.dp)
+                            Spacer(Modifier.width(10.dp))
+                            BcText(error ?: "", BcType.Small)
+                        }
                     }
                 }
             }

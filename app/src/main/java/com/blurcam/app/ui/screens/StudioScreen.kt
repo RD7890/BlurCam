@@ -170,11 +170,12 @@ fun StudioScreen(raw: File, onBack: () -> Unit, onDeleted: () -> Unit, onPlay: (
                         }
                     }
                 }
-                AnimatedVisibility(
-                    visible = busy && preview != null,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                    enter = fadeIn(tween(120)), exit = fadeOut(tween(200))
-                ) { Spinner(Bc.Accent, 22.dp) }
+                Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+                    AnimatedVisibility(
+                        visible = busy && preview != null,
+                        enter = fadeIn(tween(120)), exit = fadeOut(tween(200))
+                    ) { Spinner(Bc.Accent, 22.dp) }
+                }
 
                 // hold to compare
                 Row(
