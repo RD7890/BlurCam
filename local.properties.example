@@ -1,0 +1,6 @@
+# Copy to local.properties for LOCAL release builds (CI creates its own).
+# sdk.dir is added automatically by Android Studio.
+signing.storeFile=signing/signing-key.jks
+signing.storePassword=blurcam123
+signing.keyAlias=blurcam
+signing.keyPassword=blurcam123

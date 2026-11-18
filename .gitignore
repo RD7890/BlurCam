@@ -1,0 +1,12 @@
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.log
+# NOTE: signing/signing-key.jks is intentionally COMMITTED (the CI workflow expects it).
