@@ -88,6 +88,7 @@ dependencies {
     implementation(libs.camera.video)
     implementation(libs.camera.view)
 
+    implementation(libs.mlkit.common)
     implementation(libs.mlkit.selfie)
     implementation(libs.play.services.tasks)
     implementation(libs.coroutines.android)

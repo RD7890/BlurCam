@@ -15,6 +15,7 @@ class Preview(
     val processed: ImageBitmap,
     val original: ImageBitmap,
     val subjectFound: Boolean,
+    val segmentationOk: Boolean = true,
 )
 
 /**
@@ -84,7 +85,7 @@ class PreviewEngine {
 
         // original copy for the "hold to compare" overlay
         val original = scaled.copy(Bitmap.Config.ARGB_8888, false)
-        return Preview(processed.asImageBitmap(), original.asImageBitmap(), presence > 0.5f)
+        return Preview(processed.asImageBitmap(), original.asImageBitmap(), presence > 0.5f, masker!!.available)
     }
 
     fun close() {

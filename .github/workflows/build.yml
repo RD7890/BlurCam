@@ -85,6 +85,27 @@ jobs:
           set -o pipefail
           ./gradlew :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
+      # ── 8b. Diagnostics: is ML Kit really inside the APK? (never fails the build) ──
+      - name: Verify ML Kit is packaged in the APK
+        continue-on-error: true
+        run: |
+          APK=app/build/outputs/apk/release/app-universal-release.apk
+          echo "── ML Kit related artifacts on the release runtime classpath"
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon -q \
+            | grep -iE "mlkit|play-services-tasks|play-services-basement" | sort -u || true
+          echo "── Checking dex for ML Kit classes"
+          rm -rf /tmp/dexcheck && mkdir -p /tmp/dexcheck
+          unzip -q -o "$APK" 'classes*.dex' -d /tmp/dexcheck
+          for CLS in "Lcom/google/mlkit/common/MlKit;" \
+                     "Lcom/google/mlkit/vision/segmentation/Segmentation;" \
+                     "Lcom/google/mlkit/common/internal/MlKitInitProvider;"; do
+            if grep -aq "$CLS" /tmp/dexcheck/classes*.dex; then
+              echo "OK       $CLS"
+            else
+              echo "::warning::MISSING from dex: $CLS"
+            fi
+          done
+
       # ── 9. Version info ───────────────────────────────────────────────────────
       - name: Get version info
         id: version

@@ -158,12 +158,13 @@ fun StudioScreen(raw: File, onBack: () -> Unit, onDeleted: () -> Unit, onPlay: (
                     Image(p.original, null, Modifier.fillMaxSize().alpha(a), contentScale = ContentScale.Fit)
 
                     AnimatedContent(
-                        targetState = if (compare) 2 else if (p.subjectFound) 1 else 0,
+                        targetState = if (compare) 2 else if (!p.segmentationOk) 3 else if (p.subjectFound) 1 else 0,
                         modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                         transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
                         label = "subjectChip"
                     ) { mode ->
                         when (mode) {
+                            3 -> Chip("PERSON DETECTION UNAVAILABLE", dot = Bc.Rec, fg = Bc.Text)
                             2 -> Chip("ORIGINAL", dot = Bc.TextDim, fg = Bc.Text)
                             1 -> Chip("SUBJECT LOCKED", dot = Bc.Mint, fg = Bc.Text)
                             else -> Chip("NO PERSON · CENTRE FOCUS", dot = Bc.Amber, fg = Bc.Text)

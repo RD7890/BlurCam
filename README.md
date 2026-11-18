@@ -28,3 +28,9 @@ or updates will stop working.
 
 ## Credits
 Icons: [Phosphor Icons](https://phosphoricons.com) (MIT). Fonts: Space Grotesk and JetBrains Mono (SIL OFL 1.1).
+
+## Troubleshooting
+- **ML Kit:** its auto-init content provider is removed in the manifest and ML Kit is initialised in `BlurCamApp`
+  (`MlKitGate`). If ML Kit is ever unavailable the app still starts and Studio shows "PERSON DETECTION UNAVAILABLE"
+  (centre-focus fallback). The CI step "Verify ML Kit is packaged in the APK" prints the resolved ML Kit artifacts
+  and checks the dex for the ML Kit classes on every build.

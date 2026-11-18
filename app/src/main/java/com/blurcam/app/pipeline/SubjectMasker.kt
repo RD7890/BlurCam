@@ -1,6 +1,7 @@
 package com.blurcam.app.pipeline
 
 import android.graphics.Bitmap
+import android.util.Log
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.segmentation.Segmentation
@@ -12,20 +13,32 @@ import kotlin.math.roundToInt
 /**
  * Person matte from ML Kit Selfie Segmentation (bundled model, works offline).
  * Call [segment] from a background thread only (it blocks on the ML task).
+ * If ML Kit is unavailable, [available] is false and [segment] returns an empty matte
+ * (the renderer then uses its centre-focus fallback).
  */
 class SubjectMasker(streaming: Boolean) : AutoCloseable {
 
-    private val segmenter: Segmenter = Segmentation.getClient(
-        SelfieSegmenterOptions.Builder()
-            .setDetectorMode(
-                if (streaming) SelfieSegmenterOptions.STREAM_MODE
-                else SelfieSegmenterOptions.SINGLE_IMAGE_MODE
-            )
-            .enableRawSizeMask()
-            .build()
-    )
+    private val segmenter: Segmenter? = try {
+        Segmentation.getClient(
+            SelfieSegmenterOptions.Builder()
+                .setDetectorMode(
+                    if (streaming) SelfieSegmenterOptions.STREAM_MODE
+                    else SelfieSegmenterOptions.SINGLE_IMAGE_MODE
+                )
+                .enableRawSizeMask()
+                .build()
+        )
+    } catch (t: Throwable) {
+        Log.e("BlurCam", "Segmenter unavailable", t)
+        null
+    }
+
+    @Volatile
+    var available: Boolean = segmenter != null
+        private set
 
     fun segment(frame: Bitmap): MaskData {
+        val seg = segmenter ?: return EMPTY
         val scale = 320f / min(frame.width, frame.height)
         val input = if (scale < 1f) {
             Bitmap.createScaledBitmap(
@@ -37,7 +50,7 @@ class SubjectMasker(streaming: Boolean) : AutoCloseable {
         } else frame
 
         try {
-            val mask = Tasks.await(segmenter.process(InputImage.fromBitmap(input, 0)))
+            val mask = Tasks.await(seg.process(InputImage.fromBitmap(input, 0)))
             val w = mask.width
             val h = mask.height
             val buf = mask.buffer
@@ -50,12 +63,22 @@ class SubjectMasker(streaming: Boolean) : AutoCloseable {
                 out[i] = (v * 255f).roundToInt().toByte()
             }
             return MaskData(w, h, out, fg.toFloat() / out.size)
+        } catch (e: InterruptedException) {
+            throw e
+        } catch (t: Throwable) {
+            if (available) Log.e("BlurCam", "Segmentation failed, using centre focus", t)
+            available = false
+            return EMPTY
         } finally {
             if (input !== frame) input.recycle()
         }
     }
 
     override fun close() {
-        segmenter.close()
+        runCatching { segmenter?.close() }
+    }
+
+    private companion object {
+        val EMPTY = MaskData(1, 1, ByteArray(1), 0f)
     }
 }

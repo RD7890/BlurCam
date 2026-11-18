@@ -7,6 +7,7 @@ coreKtx = "1.15.0"
 lifecycle = "2.8.7"
 camerax = "1.4.0"
 mlkitSelfie = "16.0.0-beta6"
+mlkitCommon = "18.11.0"
 playTasks = "18.2.0"
 coroutines = "1.9.0"
 
@@ -23,6 +24,7 @@ camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "cam
 camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
 camera-video = { module = "androidx.camera:camera-video", version.ref = "camerax" }
 camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
+mlkit-common = { module = "com.google.mlkit:common", version.ref = "mlkitCommon" }
 mlkit-selfie = { module = "com.google.mlkit:segmentation-selfie", version.ref = "mlkitSelfie" }
 play-services-tasks = { module = "com.google.android.gms:play-services-tasks", version.ref = "playTasks" }
 coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }

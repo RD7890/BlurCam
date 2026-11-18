@@ -9,4 +9,7 @@
 .externalNativeBuild/
 .cxx/
 *.log
+logs/
+monitor_build.py
+*PAT*.txt
 # NOTE: signing/signing-key.jks is intentionally COMMITTED (the CI workflow expects it).
