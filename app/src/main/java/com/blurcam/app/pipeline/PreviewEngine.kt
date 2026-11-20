@@ -1,5 +1,6 @@
 package com.blurcam.app.pipeline
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.util.Log
@@ -14,87 +15,97 @@ import kotlin.math.roundToInt
 class Preview(
     val processed: ImageBitmap,
     val original: ImageBitmap,
-    val subjectFound: Boolean,
-    val segmentationOk: Boolean = true,
+    /** where the focus plane was taken from, normalised in the upright frame */
+    val focusX: Float,
+    val focusY: Float,
+    val autoFocus: Boolean,
 )
 
 /**
- * Renders a single still of the clip with the current look, using the same shader as the final render.
+ * Renders one still of the clip with the exact same shaders as the final render.
+ * Depth for a given frame is computed once and cached, so changing aperture / bloom / focus is instant.
  * Everything runs on one dedicated thread that owns the GL context. Call [close] when done.
  */
-class PreviewEngine {
+class PreviewEngine(private val ctx: Context) {
 
     private val executor = Executors.newSingleThreadExecutor()
     private val dispatcher = executor.asCoroutineDispatcher()
 
     private var egl: EglCore? = null
-    private var renderer: BokehRenderer? = null
-    private var masker: SubjectMasker? = null
+    private var gl: BokehGl? = null
     private var retriever: MediaMetadataRetriever? = null
     private var retrieverPath: String? = null
 
-    private var cachedKey: String? = null
-    private var cachedScaled: Bitmap? = null
-    private var cachedMask: MaskData? = null
+    private var frameKey: String? = null
+    private var scaled: Bitmap? = null
+    private var norm: NormDepth? = null
 
-    suspend fun render(path: String, timeMs: Long, params: BokehParams): Preview? =
+    private var uploadedKey: String? = null
+    private var map: DepthMap? = null
+    private var mapKey: String? = null
+
+    suspend fun render(path: String, timeMs: Long, look: BokehParams, quality: Quality, tap: FocusPoint?): Result<Preview> =
         withContext(dispatcher) {
-            runCatching { renderOnThread(path, timeMs, params) }
+            runCatching { renderOnThread(path, timeMs, look, quality, tap) }
                 .onFailure { Log.e("BlurCam", "preview failed", it) }
-                .getOrNull()
         }
 
-    private fun renderOnThread(path: String, timeMs: Long, params: BokehParams): Preview? {
+    private fun renderOnThread(path: String, timeMs: Long, look: BokehParams, quality: Quality, tap: FocusPoint?): Preview {
         if (egl == null) {
             egl = EglCore(null, PBUFFER, PBUFFER).also { it.makeCurrent() }
-            renderer = BokehRenderer().also { it.init() }
-            masker = SubjectMasker(streaming = false)
+            gl = BokehGl().also { it.init() }
         }
-        val r = renderer!!
+        val g = gl!!
 
-        val key = "$path@$timeMs"
-        if (key != cachedKey) {
+        val key = "$path@$timeMs@${quality.depthShortSide}"
+        if (key != frameKey) {
             if (retrieverPath != path) {
                 retriever?.release()
                 retriever = MediaMetadataRetriever().also { it.setDataSource(path) }
                 retrieverPath = path
             }
             val frame = retriever!!.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
-                ?: return null
+                ?: error("Could not read a frame")
             val k = minOf(1f, MAX_PREVIEW.toFloat() / max(frame.width, frame.height))
-            val pw = max(2, (frame.width * k).roundToInt())
-            val ph = max(2, (frame.height * k).roundToInt())
-            val scaled = if (k < 1f) Bitmap.createScaledBitmap(frame, pw, ph, true) else frame
-            val mask = masker!!.segment(frame)
-            if (scaled !== frame) frame.recycle()
-
-            cachedScaled?.recycle()
-            cachedScaled = scaled
-            cachedMask = mask
-            cachedKey = key
-
-            r.uploadFrame(scaled)
-            r.uploadMask(mask.width, mask.height, mask.bytes)
+            val bmp = if (k < 1f) Bitmap.createScaledBitmap(
+                frame, max(2, (frame.width * k).roundToInt()), max(2, (frame.height * k).roundToInt()), true
+            ) else frame
+            if (bmp !== frame) frame.recycle()
+            scaled?.recycle()
+            scaled = bmp
+            norm = DepthEstimator(ctx, quality.depthShortSide).infer(Frame.ofBitmap(bmp))
+            frameKey = key
+            uploadedKey = null
+            mapKey = null
         }
+        val bmp = scaled!!
 
-        val scaled = cachedScaled!!
-        val mask = cachedMask!!
-        val presence = presenceFromCoverage(mask.coverage)
-        r.draw(scaled.width, scaled.height, params, centerFocus = 1f - presence, flipY = true)
-        val processed = r.readPixels(scaled.width, scaled.height)
+        val tapKey = if (tap == null) "auto" else "${tap.x},${tap.y}"
+        if (mapKey != tapKey) {
+            map = DepthEstimator.focus(norm!!, tap)
+            mapKey = tapKey
+            uploadedKey = null
+        }
+        val dm = map!!
 
-        // original copy for the "hold to compare" overlay
-        val original = scaled.copy(Bitmap.Config.ARGB_8888, false)
-        return Preview(processed.asImageBitmap(), original.asImageBitmap(), presence > 0.5f, masker!!.available)
+        if (uploadedKey != "$frameKey|$mapKey") {
+            g.setSource(Frame.ofBitmap(bmp))
+            g.ingest(bmp.width, bmp.height)
+            g.setDepth(dm, dm)
+            uploadedKey = "$frameKey|$mapKey"
+        }
+        g.draw(bmp.width, bmp.height, look, dm.focus, 0f, flipY = true)
+        val processed = g.readPixels(bmp.width, bmp.height)
+        val original = bmp.copy(Bitmap.Config.ARGB_8888, false)
+        return Preview(processed.asImageBitmap(), original.asImageBitmap(), dm.seedX, dm.seedY, tap == null)
     }
 
     fun close() {
         executor.execute {
-            runCatching { renderer?.release() }
+            runCatching { gl?.release() }
             runCatching { egl?.release() }
-            runCatching { masker?.close() }
             runCatching { retriever?.release() }
-            cachedScaled = null
+            scaled = null
         }
         executor.shutdown()
     }

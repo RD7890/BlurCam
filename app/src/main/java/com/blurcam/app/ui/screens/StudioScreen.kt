@@ -12,7 +12,16 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +59,8 @@ import androidx.compose.ui.unit.dp
 import com.blurcam.app.data.ClipRepo
 import com.blurcam.app.data.fmtTenths
 import com.blurcam.app.pipeline.BokehParams
+import com.blurcam.app.pipeline.FocusPoint
+import com.blurcam.app.pipeline.Quality
 import com.blurcam.app.pipeline.Preview
 import com.blurcam.app.pipeline.PreviewEngine
 import com.blurcam.app.pipeline.RenderManager
@@ -69,6 +80,7 @@ import com.blurcam.app.ui.components.Ph
 import com.blurcam.app.ui.components.PhIcon
 import com.blurcam.app.ui.components.Segmented
 import com.blurcam.app.ui.components.Spinner
+import com.blurcam.app.ui.components.pressable
 import com.blurcam.app.ui.components.stopLabel
 import com.blurcam.app.ui.theme.Bc
 import com.blurcam.app.ui.theme.BcType
@@ -84,14 +96,17 @@ import kotlin.math.max
 fun StudioScreen(raw: File, onBack: () -> Unit, onDeleted: () -> Unit, onPlay: () -> Unit) {
     val ctx = LocalContext.current
     val clipId = raw.nameWithoutExtension
-    val engine = remember { PreviewEngine() }
+    val engine = remember { PreviewEngine(ctx.applicationContext) }
     DisposableEffect(Unit) { onDispose { engine.close() } }
 
     val duration by produceState(0L, raw) { value = withContext(Dispatchers.IO) { ClipRepo.durationOf(raw) } }
     var scrub by remember { mutableFloatStateOf(0.2f) }
     var stopIndex by remember { mutableIntStateOf(2) }
     var bloom by remember { mutableStateOf(true) }
-    var quality by remember { mutableIntStateOf(0) }
+    var quality by remember { mutableStateOf(Quality.FAST) }
+    var focusTap by remember { mutableStateOf<FocusPoint?>(null) }
+    var previewError by remember { mutableStateOf<String?>(null) }
+    var boxSize by remember { mutableStateOf(IntSize.Zero) }
     var preview by remember { mutableStateOf<Preview?>(null) }
     var busy by remember { mutableStateOf(false) }
     var compare by remember { mutableStateOf(false) }
@@ -104,16 +119,17 @@ fun StudioScreen(raw: File, onBack: () -> Unit, onDeleted: () -> Unit, onPlay: (
     val otherRunning = running != null && running.clip != clipId
     val failed = (render as? RenderState.Failed)?.takeIf { it.clip == clipId }
 
-    // Live still preview, debounced, skipped while a render owns the GPU
+    // Live still preview: depth is cached per frame, so aperture / bloom / focus changes are instant
     LaunchedEffect(duration) {
         if (duration <= 0L) return@LaunchedEffect
-        snapshotFlow { Triple(scrub, stopIndex, bloom) }.collectLatest { (s, idx, b) ->
+        snapshotFlow { PreviewKey(scrub, stopIndex, bloom, quality, focusTap) }.collectLatest { k ->
             delay(90)
             if (RenderManager.state.value is RenderState.Running) return@collectLatest
             busy = true
-            val t = (s * duration).toLong().coerceIn(0L, max(0L, duration - 150))
-            val p = engine.render(raw.absolutePath, t, BokehParams(ApertureStops[idx], b))
-            if (p != null) preview = p
+            val t = (k.scrub * duration).toLong().coerceIn(0L, max(0L, duration - 150))
+            val r = engine.render(raw.absolutePath, t, BokehParams(ApertureStops[k.stop], k.bloom), k.quality, k.tap)
+            r.onSuccess { preview = it; previewError = null }
+                .onFailure { previewError = it.message ?: "Preview failed" }
             busy = false
         }
     }
@@ -143,31 +159,65 @@ fun StudioScreen(raw: File, onBack: () -> Unit, onDeleted: () -> Unit, onPlay: (
                 IconBtn(Ph.Trash, { confirmDelete = true }, tint = Bc.Rec)
             }
 
-            // preview
+            // preview (tap = focus here)
             val frameShape = RoundedCornerShape(22.dp)
+            val latestPreview by rememberUpdatedState(preview)
+            val latestSize by rememberUpdatedState(boxSize)
             Box(
                 Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)
                     .clip(frameShape).background(Bc.Panel).border(1.dp, Bc.Line, frameShape)
+                    .onSizeChanged { boxSize = it }
+                    .pointerInput(Unit) {
+                        detectTapGestures { off ->
+                            val pv = latestPreview ?: return@detectTapGestures
+                            val r = fitRect(latestSize.width.toFloat(), latestSize.height.toFloat(), pv.processed.width.toFloat() / pv.processed.height)
+                            val nx = (off.x - r[0]) / r[2]
+                            val ny = (off.y - r[1]) / r[3]
+                            if (nx in 0f..1f && ny in 0f..1f) focusTap = FocusPoint(nx, ny)
+                        }
+                    }
             ) {
                 val p = preview
                 if (p == null) {
-                    Spinner(Bc.Accent, 28.dp, Modifier.align(Alignment.Center))
+                    Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (previewError == null) {
+                            Spinner(Bc.Accent, 28.dp)
+                            Spacer(Modifier.height(12.dp))
+                            BcText("Reading depth…", BcType.Label, color = Bc.TextDim)
+                        } else {
+                            PhIcon(Ph.Warning, Bc.Amber, size = 28.dp)
+                            Spacer(Modifier.height(12.dp))
+                            BcText(previewError ?: "", BcType.Small, color = Bc.TextDim, maxLines = 4, modifier = Modifier.padding(horizontal = 24.dp))
+                        }
+                    }
                 } else {
                     Image(p.processed, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                     val a by animateFloatAsState(if (compare) 1f else 0f, tween(140), label = "compareAlpha")
                     Image(p.original, null, Modifier.fillMaxSize().alpha(a), contentScale = ContentScale.Fit)
 
+                    // focus ring glides to wherever focus lands (rack-focus feel)
+                    val fx by animateFloatAsState(p.focusX, spring(0.75f, 320f), label = "ringX")
+                    val fy by animateFloatAsState(p.focusY, spring(0.75f, 320f), label = "ringY")
+                    val ringAlpha by animateFloatAsState(if (compare) 0f else 1f, tween(140), label = "ringA")
+                    val rect = fitRect(boxSize.width.toFloat(), boxSize.height.toFloat(), p.processed.width.toFloat() / p.processed.height)
+                    Box(
+                        Modifier
+                            .offset { IntOffset((rect[0] + fx * rect[2] - 30.dp.toPx()).toInt(), (rect[1] + fy * rect[3] - 30.dp.toPx()).toInt()) }
+                            .size(60.dp)
+                            .alpha(ringAlpha)
+                            .border(2.dp, if (p.autoFocus) Bc.Text else Bc.Accent, RoundedCornerShape(14.dp))
+                    )
+
                     AnimatedContent(
-                        targetState = if (compare) 2 else if (!p.segmentationOk) 3 else if (p.subjectFound) 1 else 0,
+                        targetState = if (compare) 2 else if (p.autoFocus) 0 else 1,
                         modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                         transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
-                        label = "subjectChip"
+                        label = "focusChip"
                     ) { mode ->
                         when (mode) {
-                            3 -> Chip("PERSON DETECTION UNAVAILABLE", dot = Bc.Rec, fg = Bc.Text)
                             2 -> Chip("ORIGINAL", dot = Bc.TextDim, fg = Bc.Text)
-                            1 -> Chip("SUBJECT LOCKED", dot = Bc.Mint, fg = Bc.Text)
-                            else -> Chip("NO PERSON · CENTRE FOCUS", dot = Bc.Amber, fg = Bc.Text)
+                            1 -> Chip("FOCUS · LOCKED", dot = Bc.Accent, fg = Bc.Text)
+                            else -> Chip("FOCUS · AUTO", dot = Bc.Mint, fg = Bc.Text)
                         }
                     }
                 }
@@ -176,13 +226,51 @@ fun StudioScreen(raw: File, onBack: () -> Unit, onDeleted: () -> Unit, onPlay: (
                     modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
                 )
 
-                // hold to compare
+                // bottom-left: hint or reset
+                AnimatedContent(
+                    targetState = focusTap != null,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
+                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                    label = "focusHint"
+                ) { locked ->
+                    if (locked) {
+                        Row(
+                            Modifier.pressable(scaleTo = 0.94f) { focusTap = null }
+                                .clip(RoundedCornerShape(100.dp)).background(Bc.Ink)
+                                .border(1.dp, Bc.Line, RoundedCornerShape(100.dp))
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            PhIcon(Ph.Refresh, Bc.Text, size = 18.dp)
+                            Spacer(Modifier.width(8.dp))
+                            BcText("AUTO FOCUS", BcType.Label)
+                        }
+                    } else {
+                        Row(
+                            Modifier.clip(RoundedCornerShape(100.dp)).background(Bc.Ink)
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            PhIcon(Ph.UserFocus, Bc.Accent, size = 18.dp)
+                            Spacer(Modifier.width(8.dp))
+                            BcText("TAP TO FOCUS", BcType.Label, color = Bc.TextDim)
+                        }
+                    }
+                }
+
+                // hold to compare (consumes the press so it never counts as a focus tap)
                 Row(
                     Modifier.align(Alignment.BottomEnd).padding(12.dp)
                         .clip(RoundedCornerShape(100.dp)).background(Bc.Ink)
                         .border(1.dp, Bc.Line, RoundedCornerShape(100.dp))
                         .pointerInput(Unit) {
-                            detectTapGestures(onPress = { compare = true; tryAwaitRelease(); compare = false })
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                down.consume()
+                                compare = true
+                                waitForUpOrCancellation()
+                                compare = false
+                            }
                         }
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -240,8 +328,11 @@ fun StudioScreen(raw: File, onBack: () -> Unit, onDeleted: () -> Unit, onPlay: (
                 }
                 Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    BcText("Export", BcType.Body, Modifier.weight(1f))
-                    Segmented(listOf("720p", "1080p"), quality, { quality = it }, Modifier.width(180.dp))
+                    Column(Modifier.weight(1f)) {
+                        BcText("Render quality", BcType.Body)
+                        BcText(quality.caption, BcType.Small, color = Bc.TextDim)
+                    }
+                    Segmented(Quality.entries.map { it.label }, quality.ordinal, { quality = Quality.entries[it] }, Modifier.width(170.dp))
                 }
                 Spacer(Modifier.height(18.dp))
 
@@ -273,8 +364,8 @@ fun StudioScreen(raw: File, onBack: () -> Unit, onDeleted: () -> Unit, onPlay: (
                                 if (hasRendered) "Re-render" else "Render cinematic",
                                 {
                                     RenderManager.start(
-                                        clipId, raw, ClipRepo.renderedFile(ctx, raw),
-                                        RenderParams(BokehParams(ApertureStops[stopIndex], bloom), if (quality == 0) 720 else 1080)
+                                        ctx, clipId, raw, ClipRepo.renderedFile(ctx, raw),
+                                        RenderParams(BokehParams(ApertureStops[stopIndex], bloom), quality, focusTap)
                                     )
                                 },
                                 Modifier.weight(if (hasRendered) 1.4f else 1f),
@@ -332,4 +423,15 @@ private fun SpinnerOverlay(visible: Boolean, modifier: Modifier = Modifier) {
             exit = fadeOut(tween(200))
         ) { Spinner(Bc.Accent, 22.dp) }
     }
+}
+
+private data class PreviewKey(val scrub: Float, val stop: Int, val bloom: Boolean, val quality: Quality, val tap: FocusPoint?)
+
+/** Where an image of [aspect] (w/h) lands inside a [bw]x[bh] box with ContentScale.Fit: [offX, offY, w, h]. */
+private fun fitRect(bw: Float, bh: Float, aspect: Float): FloatArray {
+    if (bw <= 0f || bh <= 0f || aspect <= 0f) return floatArrayOf(0f, 0f, 1f, 1f)
+    val w: Float
+    val h: Float
+    if (bw / bh > aspect) { h = bh; w = bh * aspect } else { w = bw; h = bw / aspect }
+    return floatArrayOf((bw - w) / 2f, (bh - h) / 2f, w, h)
 }

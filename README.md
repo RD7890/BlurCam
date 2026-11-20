@@ -1,36 +1,51 @@
 # BlurCam
 
-Record sharp, add cinematic depth of field afterwards. Fully offline, no frame-time budget.
+Record sharp, add real cinematic depth of field afterwards. Fully offline.
 
-**Pipeline:** CameraX capture → per-frame person matte (ML Kit Selfie Segmentation) → GPU disc-kernel bokeh
-(GLSL ES 3.0, background-only weighting = no halos, optional highlight bloom) → H.264 encode → original audio muxed back.
+## How it works
+```
+decode (MediaCodec, YUV, no seeking)
+  └─ every N frames: Depth Anything V2 Small (ONNX Runtime) → stable 0..1 disparity
+       └─ focus: Auto (nearest substantial object near centre) or Tap
+            └─ region-grow across smooth depth → whole subject (head + body) = one in-focus plane
+GPU, every frame (GLSL ES 3.0, see Shaders.kt)
+  1. ingest  : YUV/rotation → upright RGB (+ mips)
+  2. coc     : interpolate depth between key-frames, joint-bilateral upsample (edges snap to the image) → blur radius
+  3. gather  : disc kernel with scatter-style weights → no halos, subject never bleeds into the background
+→ H.264 encoder surface → mux + original audio
+```
+Decode+depth and GL+encode run on separate threads, so total time ≈ max(depth, render), not the sum.
 
-## MVP scope (honest)
-- Subject detection is **person-only**. With no person in frame, BlurCam falls back to a soft centre-focus ellipse.
-- Blur strength is set by aperture (f/1.4 – f/16); there is no depth map yet, so blur is uniform behind the subject.
-- Rendering runs while the app is open (screen is kept awake). Clips are capped at 30 s.
-- Next steps: monocular video-depth model (Video Depth Anything) for true depth falloff, rack focus,
-  foreground service / WorkManager for background renders.
+| Quality | Output | Depth input | Depth every |
+|---|---|---|---|
+| Fast | 720p | 196 px short side | 8 frames |
+| Best | 1080p | 266 px short side | 4 frames |
 
 ## Build
+The ~100 MB depth model is **not** in git. CI downloads it; locally run once:
 ```
-./gradlew :app:assembleRelease          # needs JDK 17 + Android SDK
+./scripts/fetch_model.sh
+./gradlew :app:assembleRelease          # JDK 17 + Android SDK
 ```
 Release signing reads `local.properties` (see `local.properties.example`); without it the build falls back to debug signing.
-CI (`.github/workflows/build.yml`) creates that file itself, bumps `versionCode/versionName`, builds ABI-split APKs and
-publishes them as a GitHub Release on every push to `main` or `release/**`.
+CI (`.github/workflows/build.yml`) bumps `versionCode/versionName`, builds ABI-split APKs and publishes a GitHub Release on every
+push to `main` or `release/**`. Each APK is ~110 MB because it embeds the model.
+
+## Offline test harness
+`tools/harness/harness.py` runs the **shipped** shaders (extracted from `Shaders.kt`) through Mesa/EGL with the real
+depth model on a still image. Useful to tune `Shaders.kt` / focus logic without a phone:
+`pip install onnxruntime moderngl opencv-python-headless scikit-image numpy` then `python tools/harness/harness.py model.onnx`.
+
+## Known limits
+- Monocular depth is relative. Mirrors/glass, very thin objects and night scenes with no texture can fool it. Tap the subject to override Auto.
+- Fast subject motion between depth key-frames is interpolated; use **Best** for sports-like motion.
+- Rendering runs while the app is open (screen kept awake). Clips are capped at 30 s.
 
 ## Signing key
 `signing/signing-key.jks` is committed on purpose (the workflow expects it). Alias `blurcam`, store/key password `blurcam123`.
-If the repo is public, anyone can sign APKs with this key. For a public repo, make it private, or swap to the
-`SIGNING_KEYSTORE_B64` secret and delete the committed file. **Never regenerate it** after users install your APK,
-or updates will stop working.
+For a public repo anyone could sign APKs with it: make the repo private or use a `SIGNING_KEYSTORE_B64` secret.
+**Never regenerate it** after users install your APK.
 
-## Credits
-Icons: [Phosphor Icons](https://phosphoricons.com) (MIT). Fonts: Space Grotesk and JetBrains Mono (SIL OFL 1.1).
-
-## Troubleshooting
-- **ML Kit:** its auto-init content provider is removed in the manifest and ML Kit is initialised in `BlurCamApp`
-  (`MlKitGate`). If ML Kit is ever unavailable the app still starts and Studio shows "PERSON DETECTION UNAVAILABLE"
-  (centre-focus fallback). The CI step "Verify ML Kit is packaged in the APK" prints the resolved ML Kit artifacts
-  and checks the dex for the ML Kit classes on every build.
+## Credits / licences
+Depth Anything V2 Small (Apache-2.0), ONNX export by fabio-sim/Depth-Anything-ONNX. ONNX Runtime (MIT).
+Icons: Phosphor (MIT). Fonts: Space Grotesk, JetBrains Mono (SIL OFL 1.1).

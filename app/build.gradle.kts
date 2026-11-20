@@ -68,6 +68,10 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+    androidResources {
+        // the depth model is a ~100 MB asset: store it uncompressed so first-run copy is fast
+        noCompress += "onnx"
+    }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
@@ -88,8 +92,6 @@ dependencies {
     implementation(libs.camera.video)
     implementation(libs.camera.view)
 
-    implementation(libs.mlkit.common)
-    implementation(libs.mlkit.selfie)
-    implementation(libs.play.services.tasks)
     implementation(libs.coroutines.android)
+    implementation(libs.onnxruntime.android)
 }

@@ -12,4 +12,9 @@
 logs/
 monitor_build.py
 *PAT*.txt
+__pycache__/
+*.pyc
 # NOTE: signing/signing-key.jks is intentionally COMMITTED (the CI workflow expects it).
+
+# ~100 MB depth model is downloaded by CI / scripts/fetch_model.sh, never committed
+/app/src/main/assets/models/

@@ -46,6 +46,24 @@ jobs:
           restore-keys: ${{ runner.os }}-gradle-
 
       # ── 4. Signing keystore ───────────────────────────────────────────────────
+      # ── Depth model (Depth Anything V2 Small, Apache-2.0, ~100 MB) ─────────────
+      - name: Cache depth model
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/models
+          key: depth-model-vits-dynamic-v1
+
+      - name: Download depth model
+        run: |
+          mkdir -p app/src/main/assets/models
+          F=app/src/main/assets/models/depth_anything_v2_vits_dynamic.onnx
+          if [ ! -s "$F" ]; then
+            curl -L --fail --retry 4 -o "$F" \
+              https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vits_dynamic.onnx
+          fi
+          ls -l "$F"
+          test "$(stat -c%s "$F")" -gt 90000000
+
       - name: Restore or generate signing keystore
         run: |
           mkdir -p signing
@@ -84,27 +102,6 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
-
-      # ── 8b. Diagnostics: is ML Kit really inside the APK? (never fails the build) ──
-      - name: Verify ML Kit is packaged in the APK
-        continue-on-error: true
-        run: |
-          APK=app/build/outputs/apk/release/app-universal-release.apk
-          echo "── ML Kit related artifacts on the release runtime classpath"
-          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon -q \
-            | grep -iE "mlkit|play-services-tasks|play-services-basement" | sort -u || true
-          echo "── Checking dex for ML Kit classes"
-          rm -rf /tmp/dexcheck && mkdir -p /tmp/dexcheck
-          unzip -q -o "$APK" 'classes*.dex' -d /tmp/dexcheck
-          for CLS in "Lcom/google/mlkit/common/MlKit;" \
-                     "Lcom/google/mlkit/vision/segmentation/Segmentation;" \
-                     "Lcom/google/mlkit/common/internal/MlKitInitProvider;"; do
-            if grep -aq "$CLS" /tmp/dexcheck/classes*.dex; then
-              echo "OK       $CLS"
-            else
-              echo "::warning::MISSING from dex: $CLS"
-            fi
-          done
 
       # ── 9. Version info ───────────────────────────────────────────────────────
       - name: Get version info
@@ -169,17 +166,18 @@ jobs:
             | `BlurCam-v${{ steps.version.outputs.name }}-universal-all-devices.apk` | All devices (larger file) |
 
             ### What is BlurCam
-            Record sharp, then add cinematic depth of field afterwards, offline, with no frame-time budget.
-            - **Record** clean 1080p footage with CameraX (audio included)
-            - **Studio** live still preview, f/1.4 to f/16 aperture ruler, highlight bloom, hold-to-compare
-            - **Render** person matte (ML Kit) + GPU disc-kernel bokeh + original audio, up to 1080p
-            - **Save / Share** straight to Movies/BlurCam or any app
+            Record sharp, then add real cinematic depth of field afterwards, offline.
+            - **Depth-based blur** with Depth Anything V2: the whole subject (head to body) stays sharp, everything nearer or farther blurs by distance
+            - **Tap to focus** and rack focus: tap any object in Studio, or leave it on Auto
+            - **Fast render**: hardware decode, depth on key-frames only, GPU bokeh with no halos
+            - **Studio**: f/1.4 to f/16 aperture ruler, highlight bloom, hold-to-compare, Fast / Best quality
+            - **Save / Share** to Movies/BlurCam or any app
 
             ### Install
             1. Download the APK for your device (see table above)
             2. Enable **Install from unknown sources** in Settings
             3. Install and grant Camera + Microphone permissions
-            4. Record a take with a person in frame, open Studio, pick an aperture, tap Render
+            4. Record a take, open Studio, tap your subject, pick an aperture, tap Render
 
           draft: false
           prerelease: false

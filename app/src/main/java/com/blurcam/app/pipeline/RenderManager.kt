@@ -12,10 +12,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.content.Context
 import java.io.File
 import java.util.concurrent.Executors
-
-data class RenderParams(val look: BokehParams, val shortSide: Int)
 
 sealed interface RenderState {
     data object Idle : RenderState
@@ -31,7 +30,8 @@ object RenderManager {
     val state: StateFlow<RenderState> = _state.asStateFlow()
     private var job: Job? = null
 
-    fun start(clip: String, src: File, dst: File, params: RenderParams) {
+    fun start(ctx: Context, clip: String, src: File, dst: File, params: RenderParams) {
+        val appCtx = ctx.applicationContext
         if (_state.value is RenderState.Running) return
         _state.value = RenderState.Running(clip, 0f, -1)
         job = scope.launch {
@@ -42,8 +42,7 @@ object RenderManager {
                 withContext(gl) {
                     val j = coroutineContext[Job]
                     VideoRenderer.render(
-                        src = src, dst = tmp,
-                        params = params.look, shortSide = params.shortSide,
+                        ctx = appCtx, src = src, dst = tmp, params = params,
                         ensureActive = { j?.ensureActive() },
                         onProgress = { done, total ->
                             val elapsed = (System.nanoTime() - startNs) / 1e9f
